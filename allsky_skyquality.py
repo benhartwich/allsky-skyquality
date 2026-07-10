@@ -26,6 +26,7 @@ import os
 import json
 import math
 import time
+import subprocess
 import cv2
 import numpy as np
 
@@ -45,6 +46,7 @@ metaData = {
         "offset": "17.0",
         "gain_scale": "200.0",
         "history_hours": "48",
+        "publish_web": "true",
         "debug": "false"
     },
     "argumentdetails": {
@@ -83,6 +85,12 @@ metaData = {
             "description": "History (hours)",
             "help": "How much history to keep in skyquality.json for charting",
             "type": {"fieldtype": "spinner", "min": 1, "max": 240, "step": 1}
+        },
+        "publish_web": {
+            "required": "false",
+            "description": "Publish to Website",
+            "help": "Copy skyquality.json into the website data/ folder (and upload to the remote website if enabled) so the dashboard can read it",
+            "type": {"fieldtype": "checkbox"}
         },
         "debug": {
             "required": "false",
@@ -155,7 +163,34 @@ def _roiMask(params, shape):
     return m
 
 
-def _appendHistory(record, hours):
+def _websiteDataDir():
+    website = s.getEnvironmentVariable("ALLSKY_WEBSITE")
+    if not website:
+        website = os.path.join(s.getEnvironmentVariable("ALLSKY_HOME") or os.path.expanduser("~/allsky"),
+                               "html", "allsky")
+    return os.path.join(website, "data")
+
+
+def _uploadRemote(local, fname):
+    """Upload skyquality.json to the remote website's data/ folder. Never raises."""
+    try:
+        if s.getSetting("useremotewebsite") != "true":
+            return
+        scripts = s.getEnvironmentVariable("ALLSKY_SCRIPTS") or \
+            os.path.join(s.getEnvironmentVariable("ALLSKY_HOME") or os.path.expanduser("~/allsky"), "scripts")
+        uploader = os.path.join(scripts, "upload.sh")
+        if not os.path.isfile(uploader) or not os.path.isfile(local):
+            return
+        base = (s.getSetting("remotewebsiteimagedir") or "").rstrip("/")
+        rdir = f"{base}/data" if base else "data"
+        subprocess.Popen([uploader, "--silent", "--remote-web", local, rdir, fname, "SkyQuality"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as ex:
+        s.log(1, f"WARNING: skyquality remote upload failed: {ex}")
+
+
+def _appendHistory(record, hours, publish_web):
+    # keep the authoritative copy in tmp, publish a copy to the website data/ folder
     path = os.path.join(s.ALLSKY_TMP, "skyquality.json")
     try:
         data = json.load(open(path)) if os.path.exists(path) else []
@@ -163,11 +198,21 @@ def _appendHistory(record, hours):
         data = []
     data.append(record)
     cutoff = record["t"] - hours * 3600
-    data = [d for d in data if d.get("t", 0) >= cutoff]
+    data = [d for d in data if d.get("t", 0) >= cutoff][-5000:]
     try:
-        json.dump(data[-5000:], open(path, "w"))
+        json.dump(data, open(path, "w"))
     except Exception as ex:
         s.log(1, f"WARNING: skyquality could not write history: {ex}")
+        return
+    if publish_web:
+        try:
+            ddir = _websiteDataDir()
+            os.makedirs(ddir, exist_ok=True)
+            webpath = os.path.join(ddir, "skyquality.json")
+            json.dump(data, open(webpath, "w"))
+            _uploadRemote(webpath, "skyquality.json")
+        except Exception as ex:
+            s.log(1, f"WARNING: skyquality could not publish to website: {ex}")
 
 
 def skyquality(params, event):
@@ -212,7 +257,7 @@ def skyquality(params, event):
         "adu": round(mean_adu, 1),
         "exp": round(exposure_s, 3),
         "gain": round(gain, 1)
-    }, s.int(params["history_hours"]))
+    }, s.int(params["history_hours"]), params["publish_web"])
 
     result = f"SQM {sqm:.2f} mag/arcsec2 (ADU {mean_adu:.1f}, exp {exposure_s:.2f}s, gain {gain:.0f}) — Bortle {_bortle(sqm)}"
     s.log(4, f"INFO: {result}")

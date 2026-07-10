@@ -131,6 +131,12 @@ metaData = {
 _maskCache = {"name": None, "mask": None}
 
 
+def _truthy(v):
+    """Checkbox args arrive from the flow config as the STRING 'true'/'false';
+    'false' is truthy in Python, so parse booleans explicitly."""
+    return v is True or (not isinstance(v, bool) and str(v).strip().lower() in ("true", "1", "yes", "on"))
+
+
 def _bortle(mag):
     """Rough Bortle class / description from mag/arcsec2 (indicative only)."""
     table = [
@@ -193,7 +199,7 @@ def _websiteDataDir():
 def _uploadRemote(local, fname):
     """Upload skyquality.json to the remote website root. Never raises."""
     try:
-        if s.getSetting("useremotewebsite") != "true":
+        if str(s.getSetting("useremotewebsite")).lower() not in ("true", "1", "yes", "on"):
             return
         scripts = s.getEnvironmentVariable("ALLSKY_SCRIPTS") or \
             os.path.join(s.getEnvironmentVariable("ALLSKY_HOME") or os.path.expanduser("~/allsky"), "scripts")
@@ -333,7 +339,7 @@ def skyquality(params, event):
 
     offset = s.asfloat(params.get("offset", 17.0))
     gain_scale = s.asfloat(params.get("gain_scale", 200.0))
-    debug = params.get("debug", False)
+    debug = _truthy(params.get("debug", False))
 
     gray = cv2.cvtColor(s.image, cv2.COLOR_BGR2GRAY) if len(s.image.shape) == 3 else s.image
     mask = _roiMask(params, gray.shape[:2])
@@ -366,7 +372,7 @@ def skyquality(params, event):
         except (TypeError, ValueError):
             return None
     stars = cloud = None
-    if params.get("count_stars", True):
+    if _truthy(params.get("count_stars", True)):
         stars = _countStars(_starPoints(gray, mask, 0.65))
         cloud = _cloudPct(mask, _starPoints(gray, mask, 0.55), cell=80)
     aurora = _auroraIndex(s.image, mask) if len(s.image.shape) == 3 else None
@@ -400,7 +406,7 @@ def skyquality(params, event):
                  ("cpu", None if cpu is None else round(cpu, 1))):
         if v is not None:
             rec[k] = v
-    _appendHistory(rec, s.int(params.get("history_hours", 48)), params.get("publish_web", True))
+    _appendHistory(rec, s.int(params.get("history_hours", 48)), _truthy(params.get("publish_web", True)))
 
     extra = (f", {stars} stars" if stars is not None else "") + \
             (f", {cloud}% cloud" if cloud is not None else "")

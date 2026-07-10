@@ -50,6 +50,7 @@
   .forecast .st{font-weight:650;font-size:1.02rem}
   .forecast .nc{color:var(--ts);font-size:.88rem}
   @media(max-width:520px){.forecast .nc{display:none}}
+  .forecast .wind{display:inline-block;font-weight:800;color:var(--cloud);font-size:1.1rem;line-height:1}
   .forecast .pc{margin-left:auto;font-weight:650;font-size:1.4rem;white-space:nowrap}
   .s-clear{color:#2a9d5a}.s-partly{color:var(--temp)}.s-overcast{color:var(--cloud)}.s-unknown{color:var(--muted)}
   .d-clear{background:#2a9d5a}.d-partly{background:var(--temp)}.d-overcast{background:var(--cloud)}.d-unknown{background:var(--muted)}
@@ -127,8 +128,10 @@ function renderForecast(cloud){
   const label={clear:'Clear sky',partly:'Partly cloudy',overcast:'Overcast',unknown:'Sky'}[key];
   const age=(Date.now()/1000-last.t)/60;
   const nc=age>120?'(no recent update)':(last.nowcast||'');
+  const mo=last.motion;
+  const wind=(mo&&mo.from_az!=null)?`<span class="wind" title="cloud drift ${Math.round(mo.speed_deg_min||0)}°/min" style="transform:rotate(${(mo.from_az+180)%360}deg)">↑</span>`:'';
   f.style.display='flex';
-  f.innerHTML=`<span class="dot d-${key}"></span><span class="st s-${key}">${label}</span>`
+  f.innerHTML=`<span class="dot d-${key}"></span><span class="st s-${key}">${label}</span>${wind}`
     +`<span class="nc">${nc}</span><span class="pc s-${key}">${Math.round(last.cloud)}%</span>`;
 }
 

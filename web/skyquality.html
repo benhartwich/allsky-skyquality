@@ -164,7 +164,8 @@ function render(rows,metRaw,alerts,cloudData){
   const darkest=sqm.length?Math.max(...sqm.map(p=>p.val)):null;
   const nelmBest=mlim.length?Math.max(...mlim.map(p=>p.val)):null;
   const starPeak=star.length?Math.max(...star.map(p=>p.val)):null;
-  const cloudNow=cloud.length?cloud[cloud.length-1].val:null;
+  const cloudLast=(cloudData||[]).filter(d=>d&&d.cloud!=null).slice(-1)[0];
+  const cloudNow=cloudLast?Math.round(cloudLast.cloud):(cloud.length?cloud[cloud.length-1].val:null);
   const auroraMax=aurora.length?Math.max(...aurora.map(p=>p.val)):0;
   // moon washout band for the SQM chart (same night-relative time axis)
   const moonRows=rows.filter(d=>d.moon_alt!=null);

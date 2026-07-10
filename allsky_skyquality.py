@@ -219,9 +219,9 @@ def skyquality(params, event):
     if s.image is None:
         return "No image available"
 
-    offset = s.asfloat(params["offset"])
-    gain_scale = s.asfloat(params["gain_scale"])
-    debug = params["debug"]
+    offset = s.asfloat(params.get("offset", 17.0))
+    gain_scale = s.asfloat(params.get("gain_scale", 200.0))
+    debug = params.get("debug", False)
 
     gray = cv2.cvtColor(s.image, cv2.COLOR_BGR2GRAY) if len(s.image.shape) == 3 else s.image
     mask = _roiMask(params, gray.shape[:2])
@@ -257,7 +257,7 @@ def skyquality(params, event):
         "adu": round(mean_adu, 1),
         "exp": round(exposure_s, 3),
         "gain": round(gain, 1)
-    }, s.int(params["history_hours"]), params["publish_web"])
+    }, s.int(params.get("history_hours", 48)), params.get("publish_web", True))
 
     result = f"SQM {sqm:.2f} mag/arcsec2 (ADU {mean_adu:.1f}, exp {exposure_s:.2f}s, gain {gain:.0f}) — Bortle {_bortle(sqm)}"
     s.log(4, f"INFO: {result}")

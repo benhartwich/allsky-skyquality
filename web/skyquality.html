@@ -39,6 +39,11 @@
   .aurora{display:none;align-items:center;gap:9px;margin-bottom:18px;padding:11px 15px;
     border-radius:12px;background:rgba(12,163,12,.12);border:1px solid rgba(12,163,12,.4);
     color:var(--aurora);font-weight:600;font-size:.9rem}
+  .alerts{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+  .alert{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:11px;font-size:.86rem;font-weight:600}
+  .alert .tm{margin-left:auto;font-weight:500;color:var(--muted);font-size:.75rem;white-space:nowrap}
+  .alert.high{background:rgba(235,104,52,.13);border:1px solid rgba(235,104,52,.4);color:var(--met)}
+  .alert.info{background:rgba(42,120,214,.12);border:1px solid rgba(42,120,214,.38);color:var(--sqm)}
   .shower{margin:-8px 0 20px;color:var(--ts);font-size:.85rem}
   .shower b{color:var(--tp)}
   .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:8px}
@@ -56,6 +61,7 @@
   <h1>Sky Quality &amp; Meteors</h1>
   <p class="lead">Live from the all-sky camera at astronomy.garden — no external sensors</p>
   <div class="aurora" id="aurora"></div>
+  <div class="alerts" id="alerts"></div>
   <div class="tiles" id="tiles"></div>
   <p class="shower" id="shower"></p>
   <div class="card"><h2>Sky brightness</h2><p class="sub">SQM in mag/arcsec² · higher = darker sky <span class="legend"><i></i>moon above horizon</span></p><div class="scroll"><div id="c_sqm"></div></div></div>
@@ -70,8 +76,9 @@
 const $=id=>document.getElementById(id);
 Promise.all([
   fetch('./skyquality.json').then(r=>r.ok?r.json():[]).catch(()=>[]),
-  fetch('./meteors/meteors.json').then(r=>r.ok?r.json():[]).catch(()=>[])
-]).then(([sqm,met])=>render(sqm||[],met||[]));
+  fetch('./meteors/meteors.json').then(r=>r.ok?r.json():[]).catch(()=>[]),
+  fetch('./alerts.json').then(r=>r.ok?r.json():[]).catch(()=>[])
+]).then(([sqm,met,alerts])=>render(sqm||[],met||[],alerts||[]));
 
 function series(rows,key){
   return rows.filter(d=>d[key]!=null).map(d=>{const dt=new Date(d.t*1000);
@@ -88,7 +95,19 @@ function activeShowersToday(){
   return out;
 }
 
-function render(rows,metRaw){
+function renderAlerts(alerts){
+  const host=$('alerts'),now=Date.now()/1000;
+  const recent=(alerts||[]).filter(a=>a&&a.t&&now-a.t<24*3600).slice(-6).reverse();
+  if(!recent.length){host.innerHTML='';return;}
+  host.innerHTML=recent.map(a=>{
+    const d=new Date(a.t*1000),hh=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    const sev=a.severity==='high'?'high':'info',msg=(a.message||'').replace(/"/g,'&quot;');
+    return `<div class="alert ${sev}" title="${msg}"><span>${a.title||'Alert'}</span><span class="tm">${hh}</span></div>`;
+  }).join('');
+}
+
+function render(rows,metRaw,alerts){
+  renderAlerts(alerts);
   const sqm=series(rows,'sqm'),star=series(rows,'stars'),temp=series(rows,'temp'),
         cloud=series(rows,'cloud'),aurora=series(rows,'aurora'),mlim=series(rows,'mlim');
   const darkest=sqm.length?Math.max(...sqm.map(p=>p.val)):null;

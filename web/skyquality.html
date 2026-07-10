@@ -156,9 +156,9 @@ function drawCloud24h(cloud){
     <path d="${area}" fill="url(#gcl)"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/></svg>`;
 }
 
-function render(rows,metRaw,alerts,cloud){
+function render(rows,metRaw,alerts,cloudData){
   renderAlerts(alerts);
-  renderForecast(cloud);
+  renderForecast(cloudData);
   const sqm=series(rows,'sqm'),star=series(rows,'stars'),temp=series(rows,'temp'),
         cloud=series(rows,'cloud'),aurora=series(rows,'aurora'),mlim=series(rows,'mlim');
   const darkest=sqm.length?Math.max(...sqm.map(p=>p.val)):null;
@@ -200,7 +200,7 @@ function render(rows,metRaw,alerts,cloud){
   drawLine('c_cloud',cloud,'cloud','% cloud',false);
   drawLine('c_temp',temp,'temp','°C',false);
   drawBars('c_met',met);
-  drawCloud24h(cloud);
+  drawCloud24h(cloudData);
   drawGallery(metRaw);
   $('foot').textContent=`${rows.length} readings · ${metRaw.length} meteors logged · updates each night`;
 }

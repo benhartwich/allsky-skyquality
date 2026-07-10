@@ -164,15 +164,17 @@ def _roiMask(params, shape):
 
 
 def _websiteDataDir():
+    # website root — the standard Allsky website folder that already exists on the
+    # remote (no sub-directory to create); skyquality.json sits next to skyquality.html
     website = s.getEnvironmentVariable("ALLSKY_WEBSITE")
     if not website:
         website = os.path.join(s.getEnvironmentVariable("ALLSKY_HOME") or os.path.expanduser("~/allsky"),
                                "html", "allsky")
-    return os.path.join(website, "data")
+    return website
 
 
 def _uploadRemote(local, fname):
-    """Upload skyquality.json to the remote website's data/ folder. Never raises."""
+    """Upload skyquality.json to the remote website root. Never raises."""
     try:
         if s.getSetting("useremotewebsite") != "true":
             return
@@ -181,9 +183,8 @@ def _uploadRemote(local, fname):
         uploader = os.path.join(scripts, "upload.sh")
         if not os.path.isfile(uploader) or not os.path.isfile(local):
             return
-        base = (s.getSetting("remotewebsiteimagedir") or "").rstrip("/")
-        rdir = f"{base}/data" if base else "data"
-        subprocess.Popen([uploader, "--silent", "--remote-web", local, rdir, fname, "SkyQuality"],
+        rdir = (s.getSetting("remotewebsiteimagedir") or "").rstrip("/")
+        subprocess.Popen([uploader, "--silent", "--wait", "--remote-web", local, rdir, fname, "SkyQuality"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as ex:
         s.log(1, f"WARNING: skyquality remote upload failed: {ex}")

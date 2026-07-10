@@ -69,8 +69,10 @@ matters if your gain varies between frames.
 
 ## Roadmap
 
-- [ ] Star-count based sky quality as a cross-check (template matching).
-- [ ] Ready-made Chart.js dashboard page.
+- [x] Star count as a sensor-free clarity indicator (template matching).
+- [x] Ready-made dashboard page (`web/skyquality.html`).
+- [ ] Cloud-coverage percentage and limiting-magnitude estimate.
+- [ ] Correlate SQM with moon altitude / phase.
 
 ## Credits
 

@@ -44,6 +44,15 @@
   .alert .tm{margin-left:auto;font-weight:500;color:var(--muted);font-size:.75rem;white-space:nowrap}
   .alert.high{background:rgba(235,104,52,.13);border:1px solid rgba(235,104,52,.4);color:var(--met)}
   .alert.info{background:rgba(42,120,214,.12);border:1px solid rgba(42,120,214,.38);color:var(--sqm)}
+  .forecast{display:flex;align-items:center;gap:13px;margin-bottom:18px;padding:14px 18px;
+    border-radius:14px;background:var(--surface);border:1px solid var(--border)}
+  .forecast .dot{width:13px;height:13px;border-radius:50%;flex:none}
+  .forecast .st{font-weight:650;font-size:1.02rem}
+  .forecast .nc{color:var(--ts);font-size:.88rem}
+  @media(max-width:520px){.forecast .nc{display:none}}
+  .forecast .pc{margin-left:auto;font-weight:650;font-size:1.4rem;white-space:nowrap}
+  .s-clear{color:#2a9d5a}.s-partly{color:var(--temp)}.s-overcast{color:var(--cloud)}.s-unknown{color:var(--muted)}
+  .d-clear{background:#2a9d5a}.d-partly{background:var(--temp)}.d-overcast{background:var(--cloud)}.d-unknown{background:var(--muted)}
   .shower{margin:-8px 0 20px;color:var(--ts);font-size:.85rem}
   .shower b{color:var(--tp)}
   .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:8px}
@@ -62,11 +71,13 @@
   <p class="lead">Live from the all-sky camera at astronomy.garden — no external sensors</p>
   <div class="aurora" id="aurora"></div>
   <div class="alerts" id="alerts"></div>
+  <div class="forecast" id="forecast" style="display:none"></div>
   <div class="tiles" id="tiles"></div>
   <p class="shower" id="shower"></p>
   <div class="card"><h2>Sky brightness</h2><p class="sub">SQM in mag/arcsec² · higher = darker sky <span class="legend"><i></i>moon above horizon</span></p><div class="scroll"><div id="c_sqm"></div></div></div>
   <div class="card"><h2>Visible stars</h2><p class="sub">Detected star count · a sensor-free clarity &amp; cloud indicator</p><div class="scroll"><div id="c_star"></div></div></div>
-  <div class="card"><h2>Cloud cover</h2><p class="sub">Estimated cloud/haze index · lower = clearer</p><div class="scroll"><div id="c_cloud"></div></div></div>
+  <div class="card"><h2>Cloud cover — last 24 h</h2><p class="sub">Day (Red/Blue ratio) &amp; night (star deficit) · lower = clearer</p><div class="scroll"><div id="c_cloud24"></div></div></div>
+  <div class="card"><h2>Cloud cover — tonight</h2><p class="sub">Estimated cloud/haze index · lower = clearer</p><div class="scroll"><div id="c_cloud"></div></div></div>
   <div class="card"><h2>Camera temperature</h2><p class="sub">Sensor temperature °C</p><div class="scroll"><div id="c_temp"></div></div></div>
   <div class="card"><h2>Meteors per night</h2><p class="sub">Confirmed meteors (satellites &amp; aircraft excluded)</p><div class="scroll"><div id="c_met"></div></div></div>
   <div class="card"><h2>Recent meteors</h2><p class="sub">Latest confirmed captures · true colour · click to enlarge</p><div id="gallery"></div></div>
@@ -77,8 +88,9 @@ const $=id=>document.getElementById(id);
 Promise.all([
   fetch('./skyquality.json').then(r=>r.ok?r.json():[]).catch(()=>[]),
   fetch('./meteors/meteors.json').then(r=>r.ok?r.json():[]).catch(()=>[]),
-  fetch('./alerts.json').then(r=>r.ok?r.json():[]).catch(()=>[])
-]).then(([sqm,met,alerts])=>render(sqm||[],met||[],alerts||[]));
+  fetch('./alerts.json').then(r=>r.ok?r.json():[]).catch(()=>[]),
+  fetch('./cloud.json').then(r=>r.ok?r.json():[]).catch(()=>[])
+]).then(([sqm,met,alerts,cloud])=>render(sqm||[],met||[],alerts||[],cloud||[]));
 
 function series(rows,key){
   return rows.filter(d=>d[key]!=null).map(d=>{const dt=new Date(d.t*1000);
@@ -106,8 +118,44 @@ function renderAlerts(alerts){
   }).join('');
 }
 
-function render(rows,metRaw,alerts){
+function renderForecast(cloud){
+  const f=$('forecast');
+  const last=(cloud||[]).filter(d=>d&&d.cloud!=null).slice(-1)[0];
+  if(!last){f.style.display='none';return;}
+  const st=(last.state||'unknown');
+  const key=st.indexOf('clear')===0?'clear':st.indexOf('over')===0?'overcast':st.indexOf('partly')===0?'partly':'unknown';
+  const label={clear:'Clear sky',partly:'Partly cloudy',overcast:'Overcast',unknown:'Sky'}[key];
+  const age=(Date.now()/1000-last.t)/60;
+  const nc=age>120?'(no recent update)':(last.nowcast||'');
+  f.style.display='flex';
+  f.innerHTML=`<span class="dot d-${key}"></span><span class="st s-${key}">${label}</span>`
+    +`<span class="nc">${nc}</span><span class="pc s-${key}">${Math.round(last.cloud)}%</span>`;
+}
+
+function drawCloud24h(cloud){
+  const host=$('c_cloud24'),col='var(--cloud)';
+  const now=Date.now()/1000,t0=now-24*3600;
+  const data=(cloud||[]).filter(d=>d&&d.cloud!=null&&d.t>=t0).map(d=>({t:d.t,val:d.cloud}));
+  if(data.length<2){host.innerHTML='<div class="empty">No data yet — recorded day &amp; night.</div>';return;}
+  const W=900,H=220,P={l:38,r:14,t:16,b:26},iw=W-P.l-P.r,ih=H-P.t-P.b;
+  const X=t=>P.l+(t-t0)/((now-t0)||1)*iw,Y=v=>P.t+(1-v/100)*ih;
+  let grid='',yl='';
+  for(let v=0;v<=100;v+=25){const y=Y(v);grid+=`<line x1="${P.l}" y1="${y}" x2="${W-P.r}" y2="${y}" stroke="var(--grid)"/>`;
+    yl+=`<text class="ytick" x="${P.l-7}" y="${y+3.5}" text-anchor="end">${v}</text>`;}
+  let xl='';for(let h=0;h<=24;h+=6){const t=t0+h*3600,d=new Date(t*1000);
+    xl+=`<text class="tick" x="${X(t)}" y="${H-P.b+18}" text-anchor="middle">${String(d.getHours()).padStart(2,'0')}h</text>`;}
+  const line=data.map((d,i)=>`${i?'L':'M'}${X(d.t).toFixed(1)},${Y(d.val).toFixed(1)}`).join(' ');
+  const area=`M${X(data[0].t)},${Y(0)} `+data.map(d=>`L${X(d.t).toFixed(1)},${Y(d.val).toFixed(1)}`).join(' ')+` L${X(data[data.length-1].t)},${Y(0)} Z`;
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}"><defs><linearGradient id="gcl" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="${col}" stop-opacity=".25"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    ${grid}<line x1="${P.l}" y1="${H-P.b}" x2="${W-P.r}" y2="${H-P.b}" stroke="var(--axis)"/>${yl}${xl}
+    <text class="axl" x="${P.l}" y="${P.t-4}">% cloud</text>
+    <path d="${area}" fill="url(#gcl)"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/></svg>`;
+}
+
+function render(rows,metRaw,alerts,cloud){
   renderAlerts(alerts);
+  renderForecast(cloud);
   const sqm=series(rows,'sqm'),star=series(rows,'stars'),temp=series(rows,'temp'),
         cloud=series(rows,'cloud'),aurora=series(rows,'aurora'),mlim=series(rows,'mlim');
   const darkest=sqm.length?Math.max(...sqm.map(p=>p.val)):null;
@@ -149,6 +197,7 @@ function render(rows,metRaw,alerts){
   drawLine('c_cloud',cloud,'cloud','% cloud',false);
   drawLine('c_temp',temp,'temp','°C',false);
   drawBars('c_met',met);
+  drawCloud24h(cloud);
   drawGallery(metRaw);
   $('foot').textContent=`${rows.length} readings · ${metRaw.length} meteors logged · updates each night`;
 }

@@ -46,6 +46,7 @@ metaData = {
         "offset": "17.0",
         "gain_scale": "200.0",
         "history_hours": "48",
+        "count_stars": "true",
         "publish_web": "true",
         "debug": "false"
     },
@@ -85,6 +86,12 @@ metaData = {
             "description": "History (hours)",
             "help": "How much history to keep in skyquality.json for charting",
             "type": {"fieldtype": "spinner", "min": 1, "max": 240, "step": 1}
+        },
+        "count_stars": {
+            "required": "false",
+            "description": "Count Stars",
+            "help": "Also count visible stars (template matching) — a sensor-free clarity/cloud indicator recorded alongside the SQM value",
+            "type": {"fieldtype": "checkbox"}
         },
         "publish_web": {
             "required": "false",
@@ -216,6 +223,28 @@ def _appendHistory(record, hours, publish_web):
             s.log(1, f"WARNING: skyquality could not publish to website: {ex}")
 
 
+_starTemplate = None
+
+
+def _countStars(gray, mask, thr=0.65):
+    """Count star-like points via template matching (indi-allsky method). Fast grid dedup."""
+    global _starTemplate
+    if _starTemplate is None:
+        t = np.zeros((15, 15), np.uint8)
+        cv2.circle(t, (7, 7), 3, 255, cv2.FILLED)
+        _starTemplate = cv2.blur(t, (2, 2))
+    img = cv2.bitwise_and(gray, gray, mask=mask) if mask is not None else gray
+    try:
+        res = cv2.matchTemplate(img, _starTemplate, cv2.TM_CCOEFF_NORMED)
+    except Exception:
+        return 0
+    ys, xs = np.where(res >= thr)
+    seen = set()
+    for x, y in zip(xs.tolist(), ys.tolist()):
+        seen.add((x // 10, y // 10))          # 10px grid dedup
+    return len(seen)
+
+
 def skyquality(params, event):
     if s.image is None:
         return "No image available"
@@ -248,19 +277,39 @@ def skyquality(params, event):
 
     sqm = offset - 2.5 * math.log10(signal)
 
+    # extra sensor-free metrics (like indi-allsky): star count + temperatures
+    def _flt(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    stars = _countStars(gray, mask) if params.get("count_stars", True) else None
+    temp = _flt(s.getEnvironmentVariable("AS_TEMPERATURE_C"))
+    cpu = _flt(s.getEnvironmentVariable("AS_CPUTEMP_C"))
+
     s.setEnvironmentVariable("AS_SQM", f"{sqm:.2f}")
     s.setEnvironmentVariable("AS_SQM_ADU", f"{mean_adu:.1f}")
     s.setEnvironmentVariable("AS_SQM_DESC", _bortle(sqm))
+    if stars is not None:
+        s.setEnvironmentVariable("AS_SQM_STARS", str(stars))
 
-    _appendHistory({
+    rec = {
         "t": int(time.time()),
         "sqm": round(sqm, 2),
         "adu": round(mean_adu, 1),
         "exp": round(exposure_s, 3),
-        "gain": round(gain, 1)
-    }, s.int(params.get("history_hours", 48)), params.get("publish_web", True))
+        "gain": round(gain, 1),
+    }
+    if stars is not None:
+        rec["stars"] = stars
+    if temp is not None:
+        rec["temp"] = round(temp, 1)
+    if cpu is not None:
+        rec["cpu"] = round(cpu, 1)
+    _appendHistory(rec, s.int(params.get("history_hours", 48)), params.get("publish_web", True))
 
-    result = f"SQM {sqm:.2f} mag/arcsec2 (ADU {mean_adu:.1f}, exp {exposure_s:.2f}s, gain {gain:.0f}) — Bortle {_bortle(sqm)}"
+    starsTxt = f", {stars} stars" if stars is not None else ""
+    result = f"SQM {sqm:.2f} mag/arcsec2 (ADU {mean_adu:.1f}, exp {exposure_s:.2f}s, gain {gain:.0f}){starsTxt} — Bortle {_bortle(sqm)}"
     s.log(4, f"INFO: {result}")
     return result
 
@@ -270,7 +319,7 @@ def skyquality_cleanup():
         "metaData": metaData,
         "cleanup": {
             "files": {os.path.join(s.ALLSKY_TMP, "skyquality.json")},
-            "env": {"AS_SQM", "AS_SQM_ADU", "AS_SQM_DESC"}
+            "env": {"AS_SQM", "AS_SQM_ADU", "AS_SQM_DESC", "AS_SQM_STARS"}
         }
     }
     s.cleanupModule(moduleData)

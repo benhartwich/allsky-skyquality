@@ -57,13 +57,14 @@ matters if your gain varies between frames.
 | Magnitude Offset | 17.0 | **Calibration constant — tune it** |
 | Gain Scale | 200 | Divisor exponent for gain normalisation |
 | History (hours) | 48 | How much history to keep in `skyquality.json` |
+| Count Stars | on | Also record a template-matched star count (sensor-free clarity indicator) |
 
 ## Output
 
 - Environment variables `AS_SQM` (mag/arcsec²), `AS_SQM_ADU`, `AS_SQM_DESC`
   (rough Bortle description) — usable in the Allsky overlay.
 - A rolling **`skyquality.json`** in the Allsky tmp folder: one
-  `{t, sqm, adu, exp, gain}` record per frame, ready to feed a time-series chart
+  `{t, sqm, adu, exp, gain, stars, temp, cpu}` record per frame, ready to feed a time-series chart
   (Chart.js or similar) — no database needed.
 
 ## Roadmap

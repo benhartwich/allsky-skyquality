@@ -19,3 +19,10 @@ Initial release.
   temperature. Written to skyquality.json as stars/temp/cpu.
 - Expanded dashboard (web/skyquality.html): SQM, visible stars, camera temperature
   and meteors-per-night, each a themed SVG chart, no external libraries.
+
+## v0.3.0
+
+- Cloud/haze index (star-deficit grid) and aurora index (green-excess on the north
+  horizon) added to skyquality.json, both sensor-free.
+- Dashboard: cloud-cover chart, aurora candidate banner, tonight's active-shower
+  context line.

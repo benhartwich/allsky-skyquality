@@ -8,12 +8,12 @@
   :root{
     --page:#f9f9f7;--surface:#fcfcfb;--tp:#0b0b0b;--ts:#52514e;--muted:#898781;
     --grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);
-    --sqm:#2a78d6;--star:#1baf7a;--temp:#c07a12;--met:#eb6834;
+    --sqm:#2a78d6;--star:#1baf7a;--temp:#c07a12;--met:#eb6834;--cloud:#6a7787;--aurora:#0ca30c;
   }
   @media (prefers-color-scheme:dark){:root{
     --page:#0d0d0d;--surface:#1a1a19;--tp:#fff;--ts:#c3c2b7;--muted:#898781;
     --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
-    --sqm:#3987e5;--star:#199e70;--temp:#e0a53a;--met:#d95926;}}
+    --sqm:#3987e5;--star:#199e70;--temp:#e0a53a;--met:#d95926;--cloud:#8b98a8;--aurora:#0ca30c;}}
   *{box-sizing:border-box}
   body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);
     color:var(--tp);margin:0;padding:28px 20px 56px;-webkit-font-smoothing:antialiased}
@@ -35,15 +35,23 @@
   .vl{fill:var(--ts);font-size:11px;font-weight:600}
   .foot{color:var(--muted);font-size:.76rem;text-align:center;margin-top:8px}
   .empty{color:var(--muted);font-size:.85rem;padding:26px 0;text-align:center}
+  .aurora{display:none;align-items:center;gap:9px;margin-bottom:18px;padding:11px 15px;
+    border-radius:12px;background:rgba(12,163,12,.12);border:1px solid rgba(12,163,12,.4);
+    color:var(--aurora);font-weight:600;font-size:.9rem}
+  .shower{margin:-8px 0 20px;color:var(--ts);font-size:.85rem}
+  .shower b{color:var(--tp)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Sky Quality &amp; Meteors</h1>
   <p class="lead">Live from the all-sky camera at astronomy.garden — no external sensors</p>
+  <div class="aurora" id="aurora"></div>
   <div class="tiles" id="tiles"></div>
+  <p class="shower" id="shower"></p>
   <div class="card"><h2>Sky brightness</h2><p class="sub">SQM in mag/arcsec² · higher = darker sky</p><div class="scroll"><div id="c_sqm"></div></div></div>
   <div class="card"><h2>Visible stars</h2><p class="sub">Detected star count · a sensor-free clarity &amp; cloud indicator</p><div class="scroll"><div id="c_star"></div></div></div>
+  <div class="card"><h2>Cloud cover</h2><p class="sub">Estimated cloud/haze index · lower = clearer</p><div class="scroll"><div id="c_cloud"></div></div></div>
   <div class="card"><h2>Camera temperature</h2><p class="sub">Sensor temperature °C</p><div class="scroll"><div id="c_temp"></div></div></div>
   <div class="card"><h2>Meteors per night</h2><p class="sub">Confirmed meteors (satellites &amp; aircraft excluded)</p><div class="scroll"><div id="c_met"></div></div></div>
   <p class="foot" id="foot">Loading…</p>
@@ -61,12 +69,22 @@ function series(rows,key){
     return {min:mins,val:d[key],label:String(dt.getHours()).padStart(2,'0')+':'+String(dt.getMinutes()).padStart(2,'0')};});
 }
 
+const SHOWERS=[["Quadrantids",1228,112],["Lyrids",416,425],["Eta Aquariids",419,528],
+  ["Delta Aquariids",712,823],["Perseids",717,824],["Orionids",1002,1107],
+  ["Leonids",1106,1130],["Geminids",1204,1217],["Ursids",1217,1226]];
+function activeShowersToday(){
+  const n=new Date(),v=(n.getMonth()+1)*100+n.getDate(),out=[];
+  for(const[name,a,b]of SHOWERS){const inr=a<=b?(a<=v&&v<=b):(v>=a||v<=b);if(inr)out.push(name);}
+  return out;
+}
+
 function render(rows,metRaw){
-  const sqm=series(rows,'sqm'),star=series(rows,'stars'),temp=series(rows,'temp');
-  const mags=sqm.map(p=>p.val);
-  const darkest=mags.length?Math.max(...mags):null;
+  const sqm=series(rows,'sqm'),star=series(rows,'stars'),temp=series(rows,'temp'),
+        cloud=series(rows,'cloud'),aurora=series(rows,'aurora');
+  const darkest=sqm.length?Math.max(...sqm.map(p=>p.val)):null;
   const starPeak=star.length?Math.max(...star.map(p=>p.val)):null;
-  const tempNow=temp.length?temp[temp.length-1].val:null;
+  const cloudNow=cloud.length?cloud[cloud.length-1].val:null;
+  const auroraMax=aurora.length?Math.max(...aurora.map(p=>p.val)):0;
 
   const byNight={};metRaw.forEach(m=>{const d=(m.time||'').slice(0,8);if(d)byNight[d]=(byNight[d]||0)+1;});
   const nights=Object.keys(byNight).sort().slice(-14);
@@ -76,12 +94,21 @@ function render(rows,metRaw){
   $('tiles').innerHTML=[
     ['Darkest SQM',darkest!=null?darkest.toFixed(2):'—','mag/arcsec²','sqm'],
     ['Stars (peak)',starPeak!=null?starPeak:'—','tonight','star'],
-    ['Camera temp',tempNow!=null?tempNow.toFixed(1)+'°':'—','now','temp'],
+    ['Cloud now',cloudNow!=null?cloudNow+'%':'—','lower = clearer','cloud'],
     ['Meteors tonight',tonight,'confirmed','met'],
   ].map(([k,v,u,c])=>`<div class="tile"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="u">${u}</div></div>`).join('');
 
+  const sh=activeShowersToday();
+  $('shower').innerHTML=sh.length?`Active meteor showers tonight: <b>${sh.join(', ')}</b> — detected meteors are tagged with these.`
+    :`No major shower active tonight — detected meteors are sporadic.`;
+
+  const a=$('aurora');
+  if(auroraMax>=8){a.style.display='flex';a.innerHTML=`⚡ Aurora candidate — green glow detected low on the north horizon (index ${auroraMax.toFixed(0)}).`;}
+  else a.style.display='none';
+
   drawLine('c_sqm',sqm,'sqm','mag/arcsec²',true);
   drawLine('c_star',star,'star','stars',true);
+  drawLine('c_cloud',cloud,'cloud','% cloud',false);
   drawLine('c_temp',temp,'temp','°C',false);
   drawBars('c_met',met);
   $('foot').textContent=`${rows.length} readings · ${metRaw.length} meteors logged · updates each night`;

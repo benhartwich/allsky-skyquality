@@ -226,8 +226,8 @@ def _appendHistory(record, hours, publish_web):
 _starTemplate = None
 
 
-def _countStars(gray, mask, thr=0.65):
-    """Count star-like points via template matching (indi-allsky method). Fast grid dedup."""
+def _starPoints(gray, mask, thr=0.65):
+    """Template-match star-like points (indi-allsky method). Returns list of (x, y)."""
     global _starTemplate
     if _starTemplate is None:
         t = np.zeros((15, 15), np.uint8)
@@ -237,12 +237,51 @@ def _countStars(gray, mask, thr=0.65):
     try:
         res = cv2.matchTemplate(img, _starTemplate, cv2.TM_CCOEFF_NORMED)
     except Exception:
-        return 0
+        return []
     ys, xs = np.where(res >= thr)
+    return list(zip(xs.tolist(), ys.tolist()))
+
+
+def _countStars(points):
+    """Star count with 10px grid dedup."""
     seen = set()
-    for x, y in zip(xs.tolist(), ys.tolist()):
-        seen.add((x // 10, y // 10))          # 10px grid dedup
+    for x, y in points:
+        seen.add((x // 10, y // 10))
     return len(seen)
+
+
+def _cloudPct(mask, points, cell=48):
+    """Cloud/haze index: fraction of the sky (coarse grid) that has NO stars.
+    Clear sky is dotted with stars everywhere; cloud/overcast blanks them out."""
+    h, w = mask.shape
+    gw, gh = max(1, w // cell), max(1, h // cell)
+    maskC = cv2.resize(mask, (gw, gh), interpolation=cv2.INTER_AREA)
+    sky_cells = maskC > 127
+    total = int(sky_cells.sum())
+    if total == 0:
+        return None
+    star_grid = np.zeros((gh, gw), bool)
+    for x, y in points:
+        gx, gy = min(gw - 1, x * gw // w), min(gh - 1, y * gh // h)
+        star_grid[gy, gx] = True
+    clear_cells = int((sky_cells & star_grid).sum())
+    return round(100.0 * (1.0 - clear_cells / total), 1)
+
+
+def _auroraIndex(bgr, mask):
+    """Green-excess glow low on the NORTH horizon (image is North-up). Aurora is green
+    (O I 557.7 nm); this is a candidate index, not a certainty."""
+    ys, xs = np.where(mask > 0)
+    if len(ys) == 0:
+        return 0.0
+    y0, y1 = int(ys.min()), int(ys.max())
+    band = mask.copy()
+    band[y0 + int(0.20 * (y1 - y0)):, :] = 0        # keep only the top (north) 20%
+    if int((band > 0).sum()) < 50:
+        return 0.0
+    b, g, r = cv2.split(bgr.astype(np.int16))
+    green_excess = (g - b)[band > 0]
+    return round(max(0.0, float(green_excess.mean())), 1)
 
 
 def skyquality(params, event):
@@ -277,13 +316,17 @@ def skyquality(params, event):
 
     sqm = offset - 2.5 * math.log10(signal)
 
-    # extra sensor-free metrics (like indi-allsky): star count + temperatures
+    # extra sensor-free metrics (like indi-allsky): stars, cloud cover, aurora, temps
     def _flt(v):
         try:
             return float(v)
         except (TypeError, ValueError):
             return None
-    stars = _countStars(gray, mask) if params.get("count_stars", True) else None
+    stars = cloud = None
+    if params.get("count_stars", True):
+        stars = _countStars(_starPoints(gray, mask, 0.65))
+        cloud = _cloudPct(mask, _starPoints(gray, mask, 0.55), cell=80)
+    aurora = _auroraIndex(s.image, mask) if len(s.image.shape) == 3 else None
     temp = _flt(s.getEnvironmentVariable("AS_TEMPERATURE_C"))
     cpu = _flt(s.getEnvironmentVariable("AS_CPUTEMP_C"))
 
@@ -292,6 +335,10 @@ def skyquality(params, event):
     s.setEnvironmentVariable("AS_SQM_DESC", _bortle(sqm))
     if stars is not None:
         s.setEnvironmentVariable("AS_SQM_STARS", str(stars))
+    if cloud is not None:
+        s.setEnvironmentVariable("AS_SQM_CLOUD", str(cloud))
+    if aurora is not None:
+        s.setEnvironmentVariable("AS_SQM_AURORA", str(aurora))
 
     rec = {
         "t": int(time.time()),
@@ -300,16 +347,16 @@ def skyquality(params, event):
         "exp": round(exposure_s, 3),
         "gain": round(gain, 1),
     }
-    if stars is not None:
-        rec["stars"] = stars
-    if temp is not None:
-        rec["temp"] = round(temp, 1)
-    if cpu is not None:
-        rec["cpu"] = round(cpu, 1)
+    for k, v in (("stars", stars), ("cloud", cloud), ("aurora", aurora),
+                 ("temp", None if temp is None else round(temp, 1)),
+                 ("cpu", None if cpu is None else round(cpu, 1))):
+        if v is not None:
+            rec[k] = v
     _appendHistory(rec, s.int(params.get("history_hours", 48)), params.get("publish_web", True))
 
-    starsTxt = f", {stars} stars" if stars is not None else ""
-    result = f"SQM {sqm:.2f} mag/arcsec2 (ADU {mean_adu:.1f}, exp {exposure_s:.2f}s, gain {gain:.0f}){starsTxt} — Bortle {_bortle(sqm)}"
+    extra = (f", {stars} stars" if stars is not None else "") + \
+            (f", {cloud}% cloud" if cloud is not None else "")
+    result = f"SQM {sqm:.2f} mag/arcsec2 (ADU {mean_adu:.1f}, exp {exposure_s:.2f}s){extra} — Bortle {_bortle(sqm)}"
     s.log(4, f"INFO: {result}")
     return result
 
@@ -319,7 +366,8 @@ def skyquality_cleanup():
         "metaData": metaData,
         "cleanup": {
             "files": {os.path.join(s.ALLSKY_TMP, "skyquality.json")},
-            "env": {"AS_SQM", "AS_SQM_ADU", "AS_SQM_DESC", "AS_SQM_STARS"}
+            "env": {"AS_SQM", "AS_SQM_ADU", "AS_SQM_DESC", "AS_SQM_STARS",
+                    "AS_SQM_CLOUD", "AS_SQM_AURORA"}
         }
     }
     s.cleanupModule(moduleData)

@@ -33,7 +33,7 @@ import numpy as np
 metaData = {
     "name": "Sky Quality Meter",
     "description": "Measures sky brightness in mag/arcsec2 (exposure/gain normalised)",
-    "version": "v0.1.0",
+    "version": "v0.2.0",
     "events": [
         "night"
     ],
@@ -113,6 +113,16 @@ metaData = {
                 "author": "Benjamin Hartwich",
                 "authorurl": "https://astronomy.garden",
                 "changes": "Initial exposure/gain-normalised SQM in mag/arcsec2 + rolling json for charts"
+            }
+        ],
+        "v0.2.0": [
+            {
+                "author": "Benjamin Hartwich",
+                "authorurl": "https://astronomy.garden",
+                "changes": [
+                    "Record naked-eye limiting magnitude (NELM) derived from SQM",
+                    "Record Moon altitude + illumination (ephem, falls back to Allsky overlay values) for moon-correlation charts"
+                ]
             }
         ]
     }
@@ -284,6 +294,39 @@ def _auroraIndex(bgr, mask):
     return round(max(0.0, float(green_excess.mean())), 1)
 
 
+def _limitingMag(sqm):
+    """Naked-eye limiting magnitude (NELM) from zenithal SQM, using the standard
+    Schaefer relation (as used by Unihedron):
+        NELM = 7.93 − 5·log10(10^(4.316 − SQM/5) + 1)
+    A pure function of SQM — no field-of-view calibration needed."""
+    try:
+        return round(7.93 - 5.0 * math.log10(10.0 ** (4.316 - sqm / 5.0) + 1.0), 2)
+    except Exception:
+        return None
+
+
+def _moon():
+    """(altitude_deg, illumination_pct) of the Moon. Prefers Allsky's overlay values
+    if present, otherwise computes them with ephem from the configured lat/lon.
+    Returns (None, None) if neither is available."""
+    alt_s = s.getEnvironmentVariable("AS_MOON_ELEVATION")
+    ill_s = s.getEnvironmentVariable("AS_MOON_ILLUMINATION")
+    if alt_s not in (None, "") and ill_s not in (None, ""):
+        try:
+            return round(float(alt_s), 1), round(float(ill_s), 0)
+        except (TypeError, ValueError):
+            pass
+    try:
+        import ephem
+        obs = ephem.Observer()
+        obs.lat = str(s.convertLatLon(s.getSetting("latitude")))
+        obs.lon = str(s.convertLatLon(s.getSetting("longitude")))
+        m = ephem.Moon(obs)
+        return round(math.degrees(float(m.alt)), 1), round(float(m.phase), 0)
+    except Exception:
+        return None, None
+
+
 def skyquality(params, event):
     if s.image is None:
         return "No image available"
@@ -329,10 +372,14 @@ def skyquality(params, event):
     aurora = _auroraIndex(s.image, mask) if len(s.image.shape) == 3 else None
     temp = _flt(s.getEnvironmentVariable("AS_TEMPERATURE_C"))
     cpu = _flt(s.getEnvironmentVariable("AS_CPUTEMP_C"))
+    mlim = _limitingMag(sqm)                 # naked-eye limiting magnitude
+    moon_alt, moon_ill = _moon()             # moon altitude + illumination for correlation
 
     s.setEnvironmentVariable("AS_SQM", f"{sqm:.2f}")
     s.setEnvironmentVariable("AS_SQM_ADU", f"{mean_adu:.1f}")
     s.setEnvironmentVariable("AS_SQM_DESC", _bortle(sqm))
+    if mlim is not None:
+        s.setEnvironmentVariable("AS_SQM_NELM", f"{mlim:.2f}")
     if stars is not None:
         s.setEnvironmentVariable("AS_SQM_STARS", str(stars))
     if cloud is not None:
@@ -347,7 +394,8 @@ def skyquality(params, event):
         "exp": round(exposure_s, 3),
         "gain": round(gain, 1),
     }
-    for k, v in (("stars", stars), ("cloud", cloud), ("aurora", aurora),
+    for k, v in (("mlim", mlim), ("stars", stars), ("cloud", cloud), ("aurora", aurora),
+                 ("moon_alt", moon_alt), ("moon_ill", moon_ill),
                  ("temp", None if temp is None else round(temp, 1)),
                  ("cpu", None if cpu is None else round(cpu, 1))):
         if v is not None:
@@ -366,8 +414,8 @@ def skyquality_cleanup():
         "metaData": metaData,
         "cleanup": {
             "files": {os.path.join(s.ALLSKY_TMP, "skyquality.json")},
-            "env": {"AS_SQM", "AS_SQM_ADU", "AS_SQM_DESC", "AS_SQM_STARS",
-                    "AS_SQM_CLOUD", "AS_SQM_AURORA"}
+            "env": {"AS_SQM", "AS_SQM_ADU", "AS_SQM_DESC", "AS_SQM_NELM",
+                    "AS_SQM_STARS", "AS_SQM_CLOUD", "AS_SQM_AURORA"}
         }
     }
     s.cleanupModule(moduleData)

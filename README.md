@@ -71,8 +71,9 @@ matters if your gain varies between frames.
 
 - [x] Star count as a sensor-free clarity indicator (template matching).
 - [x] Ready-made dashboard page (`web/skyquality.html`).
-- [ ] Cloud-coverage percentage and limiting-magnitude estimate.
-- [ ] Correlate SQM with moon altitude / phase.
+- [x] Cloud-coverage percentage and limiting-magnitude estimate (NELM, Schaefer relation).
+- [x] Correlate SQM with moon altitude / phase (ephem-based moon washout band on the chart).
+- [ ] Push alerts (aurora candidate / exceptional dark-sky readings).
 
 ## Credits
 

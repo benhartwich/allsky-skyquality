@@ -8,25 +8,26 @@
   :root{
     --page:#f9f9f7;--surface:#fcfcfb;--tp:#0b0b0b;--ts:#52514e;--muted:#898781;
     --grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);
-    --sqm:#2a78d6;--star:#1baf7a;--temp:#c07a12;--met:#eb6834;--cloud:#6a7787;--aurora:#0ca30c;
+    --sqm:#2a78d6;--star:#1baf7a;--temp:#c07a12;--met:#eb6834;--cloud:#6a7787;--aurora:#0ca30c;--moon:#b98a1e;--nelm:#7a5cc4;
   }
   @media (prefers-color-scheme:dark){:root{
     --page:#0d0d0d;--surface:#1a1a19;--tp:#fff;--ts:#c3c2b7;--muted:#898781;
     --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
-    --sqm:#3987e5;--star:#199e70;--temp:#e0a53a;--met:#d95926;--cloud:#8b98a8;--aurora:#0ca30c;}}
+    --sqm:#3987e5;--star:#199e70;--temp:#e0a53a;--met:#d95926;--cloud:#8b98a8;--aurora:#0ca30c;--moon:#e0b84a;--nelm:#a48ce0;}}
   *{box-sizing:border-box}
   body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);
     color:var(--tp);margin:0;padding:28px 20px 56px;-webkit-font-smoothing:antialiased}
   .wrap{max-width:960px;margin:0 auto}
   h1{font-size:1.5rem;font-weight:650;margin:0 0 4px;letter-spacing:-.01em}
   .lead{margin:0 0 22px;color:var(--ts);font-size:.9rem}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px}
   @media(max-width:640px){.tiles{grid-template-columns:repeat(2,1fr)}}
   .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 15px}
   .tile .k{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
   .tile .v{font-size:1.7rem;font-weight:650;margin-top:5px;line-height:1}
   .tile .u{font-size:.78rem;color:var(--ts);margin-top:4px}
   .v.sqm{color:var(--sqm)}.v.star{color:var(--star)}.v.temp{color:var(--temp)}.v.met{color:var(--met)}
+  .v.nelm{color:var(--nelm)}.v.moon{color:var(--moon)}.v.cloud{color:var(--cloud)}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px 12px;margin-bottom:20px}
   .card h2{font-size:.98rem;font-weight:600;margin:0 0 2px}
   .card .sub{font-size:.8rem;color:var(--muted);margin:0 0 10px}
@@ -40,6 +41,14 @@
     color:var(--aurora);font-weight:600;font-size:.9rem}
   .shower{margin:-8px 0 20px;color:var(--ts);font-size:.85rem}
   .shower b{color:var(--tp)}
+  .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:8px}
+  .gal a{display:block;text-decoration:none;color:inherit;border-radius:9px;overflow:hidden;
+    border:1px solid var(--border);background:var(--page)}
+  .gal img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:#000}
+  .gal .cap{padding:5px 7px;font-size:.68rem;color:var(--ts);line-height:1.25}
+  .gal .cap b{color:var(--tp);font-weight:600}
+  .legend{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;color:var(--muted);margin-left:2px}
+  .legend i{width:11px;height:11px;border-radius:3px;background:var(--moon);opacity:.5;display:inline-block}
 </style>
 </head>
 <body>
@@ -49,11 +58,12 @@
   <div class="aurora" id="aurora"></div>
   <div class="tiles" id="tiles"></div>
   <p class="shower" id="shower"></p>
-  <div class="card"><h2>Sky brightness</h2><p class="sub">SQM in mag/arcsec² · higher = darker sky</p><div class="scroll"><div id="c_sqm"></div></div></div>
+  <div class="card"><h2>Sky brightness</h2><p class="sub">SQM in mag/arcsec² · higher = darker sky <span class="legend"><i></i>moon above horizon</span></p><div class="scroll"><div id="c_sqm"></div></div></div>
   <div class="card"><h2>Visible stars</h2><p class="sub">Detected star count · a sensor-free clarity &amp; cloud indicator</p><div class="scroll"><div id="c_star"></div></div></div>
   <div class="card"><h2>Cloud cover</h2><p class="sub">Estimated cloud/haze index · lower = clearer</p><div class="scroll"><div id="c_cloud"></div></div></div>
   <div class="card"><h2>Camera temperature</h2><p class="sub">Sensor temperature °C</p><div class="scroll"><div id="c_temp"></div></div></div>
   <div class="card"><h2>Meteors per night</h2><p class="sub">Confirmed meteors (satellites &amp; aircraft excluded)</p><div class="scroll"><div id="c_met"></div></div></div>
+  <div class="card"><h2>Recent meteors</h2><p class="sub">Latest confirmed captures · true colour · click to enlarge</p><div id="gallery"></div></div>
   <p class="foot" id="foot">Loading…</p>
 </div>
 <script>
@@ -80,11 +90,17 @@ function activeShowersToday(){
 
 function render(rows,metRaw){
   const sqm=series(rows,'sqm'),star=series(rows,'stars'),temp=series(rows,'temp'),
-        cloud=series(rows,'cloud'),aurora=series(rows,'aurora');
+        cloud=series(rows,'cloud'),aurora=series(rows,'aurora'),mlim=series(rows,'mlim');
   const darkest=sqm.length?Math.max(...sqm.map(p=>p.val)):null;
+  const nelmBest=mlim.length?Math.max(...mlim.map(p=>p.val)):null;
   const starPeak=star.length?Math.max(...star.map(p=>p.val)):null;
   const cloudNow=cloud.length?cloud[cloud.length-1].val:null;
   const auroraMax=aurora.length?Math.max(...aurora.map(p=>p.val)):0;
+  // moon washout band for the SQM chart (same night-relative time axis)
+  const moonRows=rows.filter(d=>d.moon_alt!=null);
+  const moonBand=moonRows.map(d=>{const dt=new Date(d.t*1000);let mins=dt.getHours()*60+dt.getMinutes();
+    if(dt.getHours()<12)mins+=1440;mins-=1260;return{min:mins,alt:d.moon_alt,ill:d.moon_ill!=null?d.moon_ill:0};});
+  const moonLast=moonRows.length?moonRows[moonRows.length-1]:null;
 
   const byNight={};metRaw.forEach(m=>{const d=(m.time||'').slice(0,8);if(d)byNight[d]=(byNight[d]||0)+1;});
   const nights=Object.keys(byNight).sort().slice(-14);
@@ -93,8 +109,11 @@ function render(rows,metRaw){
 
   $('tiles').innerHTML=[
     ['Darkest SQM',darkest!=null?darkest.toFixed(2):'—','mag/arcsec²','sqm'],
+    ['Limiting mag',nelmBest!=null?nelmBest.toFixed(1):'—','naked-eye (NELM)','nelm'],
     ['Stars (peak)',starPeak!=null?starPeak:'—','tonight','star'],
     ['Cloud now',cloudNow!=null?cloudNow+'%':'—','lower = clearer','cloud'],
+    ['Moon',moonLast&&moonLast.moon_ill!=null?Math.round(moonLast.moon_ill)+'%':'—',
+      moonLast?(moonLast.moon_alt>0?Math.round(moonLast.moon_alt)+'° up':'below horizon'):'illumination','moon'],
     ['Meteors tonight',tonight,'confirmed','met'],
   ].map(([k,v,u,c])=>`<div class="tile"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="u">${u}</div></div>`).join('');
 
@@ -106,15 +125,16 @@ function render(rows,metRaw){
   if(auroraMax>=8){a.style.display='flex';a.innerHTML=`⚡ Aurora candidate — green glow detected low on the north horizon (index ${auroraMax.toFixed(0)}).`;}
   else a.style.display='none';
 
-  drawLine('c_sqm',sqm,'sqm','mag/arcsec²',true);
+  drawLine('c_sqm',sqm,'sqm','mag/arcsec²',true,moonBand);
   drawLine('c_star',star,'star','stars',true);
   drawLine('c_cloud',cloud,'cloud','% cloud',false);
   drawLine('c_temp',temp,'temp','°C',false);
   drawBars('c_met',met);
+  drawGallery(metRaw);
   $('foot').textContent=`${rows.length} readings · ${metRaw.length} meteors logged · updates each night`;
 }
 
-function drawLine(id,data,colorVar,unit,peakLabel){
+function drawLine(id,data,colorVar,unit,peakLabel,moon){
   const host=$(id),col=`var(--${colorVar})`;
   if(!data.length){host.innerHTML='<div class="empty">No data yet — recorded each night.</div>';return;}
   const W=900,H=260,P={l:46,r:16,t:16,b:34},iw=W-P.l-P.r,ih=H-P.t-P.b;
@@ -122,6 +142,10 @@ function drawLine(id,data,colorVar,unit,peakLabel){
   const vs=data.map(d=>d.val);let yMin=Math.min(...vs),yMax=Math.max(...vs);
   const padY=(yMax-yMin)*0.15||1;yMin=Math.floor(yMin-padY);yMax=Math.ceil(yMax+padY);
   const X=m=>P.l+(m-minX)/((maxX-minX)||1)*iw,Y=v=>P.t+(yMax-v)/((yMax-yMin)||1)*ih;
+  let moonShade='';
+  if(moon&&moon.length){const mw=Math.max(3,iw/moon.length*1.2);
+    moon.forEach(p=>{if(p.alt>0){const x=X(p.min)-mw/2,op=Math.min(.22,.05+.15*(p.ill||0)/100);
+      moonShade+=`<rect x="${x.toFixed(1)}" y="${P.t}" width="${mw.toFixed(1)}" height="${ih}" fill="var(--moon)" opacity="${op.toFixed(3)}"/>`;}});}
   let grid='',yl='';const ticks=4,st=(yMax-yMin)/ticks;
   for(let i=0;i<=ticks;i++){const v=yMin+st*i,y=Y(v);
     grid+=`<line x1="${P.l}" y1="${y}" x2="${W-P.r}" y2="${y}" stroke="var(--grid)"/>`;
@@ -135,7 +159,7 @@ function drawLine(id,data,colorVar,unit,peakLabel){
         <text class="vl" x="${X(p.min)}" y="${Y(p.val)-9}" text-anchor="middle">${st<1?p.val.toFixed(2):p.val}</text>`;}
   host.innerHTML=`<svg viewBox="0 0 ${W} ${H}"><defs><linearGradient id="g_${id}" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="${col}" stop-opacity=".20"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
-    ${grid}<line x1="${P.l}" y1="${P.t}" x2="${P.l}" y2="${H-P.b}" stroke="var(--axis)"/>
+    ${moonShade}${grid}<line x1="${P.l}" y1="${P.t}" x2="${P.l}" y2="${H-P.b}" stroke="var(--axis)"/>
     <line x1="${P.l}" y1="${H-P.b}" x2="${W-P.r}" y2="${H-P.b}" stroke="var(--axis)"/>${yl}${xl}
     <text class="axl" x="${P.l}" y="${P.t-4}">${unit}</text>
     <path d="${area}" fill="url(#g_${id})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>${pk}</svg>`;
@@ -156,6 +180,23 @@ function drawBars(id,data){
     xl+=`<text class="tick" x="${x+w/2}" y="${H-P.b+18}" text-anchor="middle">${d.d}</text>`;});
   host.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${grid}<line x1="${P.l}" y1="${H-P.b}" x2="${W-P.r}" y2="${H-P.b}" stroke="var(--axis)"/>${yl}${xl}${bars}</svg>`
     +(has?'':'<div class="empty">No meteors confirmed yet — watching each clear night.</div>');
+}
+
+function drawGallery(metRaw){
+  const host=$('gallery');
+  const items=metRaw.filter(m=>m.file).slice(-12).reverse();
+  if(!items.length){host.className='';host.innerHTML='<div class="empty">No meteors captured yet — the gallery fills on clear nights.</div>';return;}
+  host.className='gal';
+  host.innerHTML=items.map(m=>{
+    const t=m.time||'';
+    const hh=t.length>=12?`${t.slice(8,10)}:${t.slice(10,12)}`:'';
+    const dd=t.length>=8?`${t.slice(6,8)}.${t.slice(4,6)}.`:'';
+    const sh=(m.showers&&m.showers.length)?m.showers[0]:'sporadic';
+    return `<a href="./meteors/${m.file}" target="_blank" rel="noopener">`
+      +`<img loading="lazy" src="./meteors/thumbnails/${m.file}" alt="meteor ${t}" `
+      +`onerror="this.onerror=null;this.src='./meteors/${m.file}'">`
+      +`<div class="cap"><b>${dd} ${hh}</b><br>${sh}${m.peak!=null?' · pk '+m.peak:''}</div></a>`;
+  }).join('');
 }
 </script>
 </body>

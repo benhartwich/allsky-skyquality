@@ -81,13 +81,14 @@
   .lb{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
     background:rgba(0,0,0,.92);padding:18px}
   .lb.open{display:flex}
-  .lb .box{position:relative;display:flex;flex-direction:column;align-items:center;gap:11px;max-width:97vw;max-height:94vh;overflow:auto}
-  .lb .stage{position:relative;line-height:0;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:#000}
-  /* Bild liegt IM svg → Bild + Marker teilen EIN Koordinatensystem (keine Fehlausrichtung) */
-  .lb .stage svg{display:block;max-width:97vw;max-height:80vh;background:#000}
-  .lb #lbmarkers{transition:opacity .18s}
-  .lb .stage.hide #lbmarkers{opacity:0}
-  .lb .bar{align-self:stretch}
+  /* box = Block (kein Flex-Stretch), zentriert; stage = inline-block, schrumpft aufs
+     Bild → absolut positioniertes SVG-Overlay deckt es 1:1 (Marker sitzen exakt) */
+  .lb .box{max-width:97vw;max-height:94vh;overflow:auto;text-align:center}
+  .lb .stage{position:relative;display:inline-block;line-height:0;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:#000}
+  .lb .stage img{display:block;max-width:97vw;max-height:78vh;width:auto;height:auto}
+  .lb .stage svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;transition:opacity .18s}
+  .lb .stage.hide svg{opacity:0}
+  .lb .bar{margin-top:11px;text-align:left}
   .lb .mk{fill:none;stroke:var(--met);stroke-linecap:round}
   .lb .mk.pulse{animation:mkpulse 1.6s ease-in-out infinite}
   @keyframes mkpulse{0%,100%{opacity:1}50%{opacity:.45}}
@@ -164,10 +165,8 @@
 <div class="lb" id="lb">
   <div class="box">
     <div class="stage" id="lbstage">
-      <svg id="lbsvg" preserveAspectRatio="xMidYMid meet">
-        <image id="lbimage" x="0" y="0"></image>
-        <g id="lbmarkers"></g>
-      </svg>
+      <img id="lbimg" alt="Bild">
+      <svg id="lbsvg" preserveAspectRatio="xMidYMid meet"></svg>
     </div>
     <div class="bar">
       <div class="info" id="lbinfo"></div>
@@ -527,7 +526,7 @@ function buildMarkers(sibs,natW){
 function fmtStamp(t){t=String(t);if(t.length<12)return'';
   return `${t.slice(6,8)}.${t.slice(4,6)}. ${t.slice(8,10)}:${t.slice(10,12)}`;}
 function openLightbox(src,meteorFile,label){
-  const svg=$('lbsvg'),imel=$('lbimage'),mk=$('lbmarkers'),stage=$('lbstage');
+  const img=$('lbimg'),svg=$('lbsvg'),stage=$('lbstage');
   const sibs=meteorFile?METRAW.filter(m=>m.file===meteorFile):[];
   const hasPos=sibs.some(s=>s.p1&&s.p2);
   const m0=sibs[0];
@@ -539,19 +538,15 @@ function openLightbox(src,meteorFile,label){
   stage.classList.remove('hide');
   $('lbtoggle').textContent='Position ausblenden';
   $('lbtoggle').style.display=hasPos?'':'none';
-  mk.innerHTML='';
+  svg.innerHTML='';
   const url=src+(src.indexOf('?')<0?'?t='+Math.floor(Date.now()/60000):'');
-  const pre=new Image();
-  pre.onload=()=>{const nW=pre.naturalWidth||1920,nH=pre.naturalHeight||1080;
-    svg.setAttribute('viewBox',`0 0 ${nW} ${nH}`);svg.setAttribute('width',nW);svg.setAttribute('height',nH);
-    imel.setAttribute('width',nW);imel.setAttribute('height',nH);
-    imel.setAttribute('href',url);imel.setAttributeNS('http://www.w3.org/1999/xlink','xlink:href',url);
-    mk.innerHTML=buildMarkers(sibs,nW);};
-  pre.src=url;
+  img.onload=()=>{const nW=img.naturalWidth||1920,nH=img.naturalHeight||1080;
+    svg.setAttribute('viewBox',`0 0 ${nW} ${nH}`);svg.innerHTML=buildMarkers(sibs,nW);};
+  img.src=url;
+  if(img.complete&&img.naturalWidth)img.onload();
   $('lb').classList.add('open');
 }
-function closeLightbox(){$('lb').classList.remove('open');
-  $('lbimage').removeAttribute('href');$('lbmarkers').innerHTML='';}
+function closeLightbox(){$('lb').classList.remove('open');$('lbimg').src='';$('lbsvg').innerHTML='';}
 $('lbclose').addEventListener('click',closeLightbox);
 $('lbtoggle').addEventListener('click',()=>{const st=$('lbstage'),h=st.classList.toggle('hide');
   $('lbtoggle').textContent=h?'Position einblenden':'Position ausblenden';});

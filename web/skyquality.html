@@ -177,7 +177,6 @@
 
 <script>
 const $=id=>document.getElementById(id);
-let MET=[];   // meteors.json rows, for looking up a detection's streak position
 // cache-buster: the host serves the JSON with cache-control max-age=43200 (12 h),
 // so without this the browser shows a stale copy and the charts look "empty".
 const cb='?t='+Math.floor(Date.now()/60000);   // changes each minute, matches update cadence
@@ -339,7 +338,7 @@ function renderNlc(nlc){
   } else host.style.display='none';
 }
 
-let RAW=[],ARCH=[],MET=[],CLOUDJ=[],CUR={h:24};
+let RAW=[],ARCH=[],MET=[],METRAW=[],CLOUDJ=[],CUR={h:24};
 const DAY=86400;
 function nightIdOf(t){const d=new Date((t-43200)*1000);
   return `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}`;}
@@ -347,7 +346,7 @@ function nightT(ds){return new Date(+ds.slice(0,4),+ds.slice(4,6)-1,+ds.slice(6,
 function midnight(iso){const p=iso.split('-');return new Date(+p[0],+p[1]-1,+p[2],0,0,0).getTime()/1000;}
 
 function render(rows,metRaw,alerts,cloudData,nlcData,archiveData){
-  MET=metRaw||[];
+  METRAW=metRaw||[];
   renderAlerts(alerts);renderForecast(cloudData);renderNlc(nlcData);
   RAW=(rows||[]).filter(d=>d&&d.t).sort((a,b)=>a.t-b.t);
   ARCH=(archiveData||[]).filter(a=>a&&a.date).sort((a,b)=>a.date<b.date?-1:1);
@@ -525,7 +524,7 @@ function fmtStamp(t){t=String(t);if(t.length<12)return'';
   return `${t.slice(6,8)}.${t.slice(4,6)}. ${t.slice(8,10)}:${t.slice(10,12)}`;}
 function openLightbox(src,meteorFile,label){
   const img=$('lbimg'),svg=$('lbsvg'),stage=$('lbstage');
-  const sibs=meteorFile?MET.filter(m=>m.file===meteorFile):[];
+  const sibs=meteorFile?METRAW.filter(m=>m.file===meteorFile):[];
   const hasPos=sibs.some(s=>s.p1&&s.p2);
   const m0=sibs[0];
   $('lbinfo').innerHTML=(label?`<b>${label}</b> · `:'')

@@ -85,7 +85,7 @@
      Bild → absolut positioniertes SVG-Overlay deckt es 1:1 (Marker sitzen exakt) */
   .lb .box{max-width:97vw;max-height:94vh;overflow:auto;text-align:center}
   .lb .stage{position:relative;display:inline-block;line-height:0;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:#000}
-  .lb .stage img{display:block;max-width:97vw;max-height:78vh;width:auto;height:auto}
+  .lb .stage img{display:block;max-width:97vw;max-height:70vh;width:auto;height:auto}
   .lb .stage svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;transition:opacity .18s}
   .lb .stage.hide svg{opacity:0}
   .lb .bar{margin-top:11px;text-align:left}
@@ -95,6 +95,15 @@
   .lb .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--ts);font-size:.86rem}
   .lb .bar .info b{color:var(--tp)}
   .lb .bar .spacer{flex:1}
+  .lblrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;text-align:left;
+    margin-top:11px;padding-top:9px;border-top:1px solid var(--border)}
+  .lblrow .lead{color:var(--ts);font-size:.83rem;margin-right:2px;flex-basis:100%}
+  .lbl{background:var(--surface);color:var(--ts);border:1px solid var(--border);
+    border-radius:20px;padding:6px 13px;font-size:.83rem;cursor:pointer;transition:.15s}
+  .lbl:hover{border-color:var(--accent);color:var(--tp)}
+  .lbl.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .lblstat{color:var(--muted);font-size:.78rem;margin-left:4px}
+  .lblstat.saved{color:var(--aur)}
   .lb button{background:var(--surface);color:var(--tp);border:1px solid var(--border);
     border-radius:8px;padding:7px 13px;font-size:.83rem;cursor:pointer;white-space:nowrap}
   .lb button:hover{border-color:var(--accent)}
@@ -175,6 +184,15 @@
       <a id="lbopen" href="#" target="_blank" rel="noopener"><button type="button">Original ↗</button></a>
       <button id="lbclose" type="button">Schließen ✕</button>
     </div>
+    <div class="lblrow" id="lblrow" style="display:none">
+      <span class="lead">Einordnen (hilft, den Detektor zu trainieren):</span>
+      <button class="lbl" data-l="meteor" type="button">☄️ Meteor</button>
+      <button class="lbl" data-l="aircraft" type="button">✈️ Flugzeug</button>
+      <button class="lbl" data-l="satellite" type="button">🛰️ Satellit</button>
+      <button class="lbl" data-l="artifact" type="button">✨ Artefakt</button>
+      <button class="lbl" data-l="unsure" type="button">❓ Unsicher</button>
+      <span class="lblstat" id="lblstat"></span>
+    </div>
   </div>
 </div>
 
@@ -189,8 +207,11 @@ Promise.all([
   fetch('./alerts.json'+cb).then(r=>r.ok?r.json():[]).catch(()=>[]),
   fetch('./cloud.json'+cb).then(r=>r.ok?r.json():[]).catch(()=>[]),
   fetch('./nlc.json'+cb).then(r=>r.ok?r.json():[]).catch(()=>[]),
-  fetch('./skyquality_archive.json'+cb).then(r=>r.ok?r.json():[]).catch(()=>[])
-]).then(([sqm,met,alerts,cloud,nlc,archive])=>render(sqm||[],met||[],alerts||[],cloud||[],nlc||[],archive||[]));
+  fetch('./skyquality_archive.json'+cb).then(r=>r.ok?r.json():[]).catch(()=>[]),
+  fetch('./label.php'+cb).then(r=>r.ok?r.json():{}).catch(()=>({}))
+]).then(([sqm,met,alerts,cloud,nlc,archive,lab])=>{
+  LABELS=Array.isArray(lab)?{}:(lab||{});
+  render(sqm||[],met||[],alerts||[],cloud||[],nlc||[],archive||[]);});
 
 function series(rows,key){
   return rows.filter(d=>d[key]!=null).map(d=>{const dt=new Date(d.t*1000);
@@ -342,6 +363,7 @@ function renderNlc(nlc){
 }
 
 let RAW=[],ARCH=[],MET=[],METRAW=[],CLOUDJ=[],CUR={h:24};
+let LABELS={},CURRENT_ID=null;
 const DAY=86400;
 function nightIdOf(t){const d=new Date((t-43200)*1000);
   return `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}`;}
@@ -544,8 +566,32 @@ function openLightbox(src,meteorFile,label){
     svg.setAttribute('viewBox',`0 0 ${nW} ${nH}`);svg.innerHTML=buildMarkers(sibs,nW);};
   img.src=url;
   if(img.complete&&img.naturalWidth)img.onload();
+  const lr=$('lblrow');
+  if(meteorFile){CURRENT_ID=meteorFile;lr.style.display='';renderLabels();}
+  else{CURRENT_ID=null;lr.style.display='none';}
   $('lb').classList.add('open');
 }
+function renderLabels(){
+  const cur=(LABELS[CURRENT_ID]||{}).label||null;
+  document.querySelectorAll('#lblrow .lbl').forEach(b=>
+    b.classList.toggle('on',b.getAttribute('data-l')===cur));
+  const st=$('lblstat');st.className='lblstat';
+  st.textContent=cur?'gespeichert':'noch nicht eingeordnet';
+}
+function postLabel(id,label){
+  return fetch('./label.php',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,label})}).then(r=>r.ok?r.json():Promise.reject(r.status));
+}
+function saveLabel(label){
+  const id=CURRENT_ID;if(!id)return;
+  const st=$('lblstat');st.className='lblstat';st.textContent='speichere…';
+  postLabel(id,label).then(res=>{if(res&&res.ok){LABELS[id]={label:res.label};
+      renderLabels();const s=$('lblstat');s.className='lblstat saved';s.textContent='✓ gespeichert';}
+      else throw 0;})
+    .catch(()=>{const s=$('lblstat');s.className='lblstat';s.textContent='Fehler beim Speichern';});
+}
+document.querySelectorAll('#lblrow .lbl').forEach(b=>
+  b.addEventListener('click',()=>saveLabel(b.getAttribute('data-l'))));
 function closeLightbox(){$('lb').classList.remove('open');$('lbimg').src='';$('lbsvg').innerHTML='';}
 $('lbclose').addEventListener('click',closeLightbox);
 $('lbtoggle').addEventListener('click',()=>{const st=$('lbstage'),h=st.classList.toggle('hide');
